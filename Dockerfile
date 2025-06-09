@@ -8,7 +8,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /waller .
 
 FROM alpine:latest
 WORKDIR /app
-RUN apk update && apk add --no-cache libheif-tools exiv2
+RUN apk update && apk add --no-cache libheif-tools exiv2 imagemagick
 COPY --from=builder /waller .
 COPY static ./static
 CMD ["./waller"]

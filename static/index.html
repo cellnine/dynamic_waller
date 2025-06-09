@@ -3,44 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>macOS Dynamic Wallpaper Maker</title>
+    <title>macOS Dynamic Wallpaper Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
-    
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+
+    <link rel="apple-touch-icon" sizes="180x180" href="./static/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="./static/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./static/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
 </head>
 <body>
     <main>
-        <h1>macOS Dynamic Wallpaper Maker</h1>
-        <p class="subtitle">Create a light & dark mode wallpaper in seconds.</p>
+        <section id="creator-section">
+            <header>
+                <h1>macOS Dynamic Wallpaper Generator</h1>
+                <p>Make your own light and dark dynamic images in just a few clicks.</p>
+            </header>
 
-        <form id="upload-form">
-            <div class="file-inputs">
-                <div class="input-group">
-                    <label for="light-file">☀️ Light Mode Image</label>
-                    <input type="file" id="light-file" name="light" accept="image/*" required>
+            <form id="upload-form">
+                <div class="upload-container">
+                    <!-- Light Wallpaper Uploader -->
+                    <div class="uploader" id="light-uploader">
+                        <label for="light-file">Light Wallpaper</label>
+                        <div class="preview-box" id="light-preview-box">
+                            <img class="preview-image" id="light-preview" src="#" alt="Light mode preview">
+                        </div>
+                    </div>
+                    <!-- Dark Wallpaper Uploader -->
+                    <div class="uploader" id="dark-uploader">
+                        <label for="dark-file">Dark Wallpaper</label>
+                        <div class="preview-box" id="dark-preview-box">
+                            <img class="preview-image" id="dark-preview" src="#" alt="Dark mode preview">
+                        </div>
+                    </div>
                 </div>
-                <div class="input-group">
-                    <label for="dark-file">🌙 Dark Mode Image</label>
-                    <input type="file" id="dark-file" name="dark" accept="image/*" required>
+
+                <!-- Hidden file inputs that we trigger with JS -->
+                <input type="file" id="light-file" name="light" accept="image/*" required>
+                <input type="file" id="dark-file" name="dark" accept="image/*" required>
+
+                <div id="status-area" class="hidden">
+                    <p id="status-text"></p>
                 </div>
-            </div>
-            <button type="submit" id="submit-button">Create Wallpaper</button>
-        </form>
 
-        <div id="status-area" class="hidden">
-            <p id="status-text"></p>
-            <a id="download-link" class="button hidden" href="#" download>Download Wallpaper</a>
-        </div>
+                <button type="submit" id="submit-button" class="primary-action">Generate</button>
+            </form>
 
-        <section id="gallery-section">
-            <h2>Gallery</h2>
-            <div id="gallery-grid">
-                <!-- Gallery images will be loaded here by JavaScript -->
-            </div>
+            <a href="/gallery" id="gallery-link" class="secondary-action">Click to view wallpaper gallery</a>
         </section>
+
     </main>
 
     <script src="/static/script.js"></script>

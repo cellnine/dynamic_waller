@@ -1,130 +1,124 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Get references to our HTML elements
+    // --- Element References ---
     const form = document.getElementById('upload-form');
-    const lightFileInput = document.getElementById('light-file');
-    const darkFileInput = document.getElementById('dark-file');
     const submitButton = document.getElementById('submit-button');
+
+    // Uploader specific elements
+    const lightUploader = document.getElementById('light-uploader');
+    const lightFileInput = document.getElementById('light-file');
+    const lightPreview = document.getElementById('light-preview');
+
+    const darkUploader = document.getElementById('dark-uploader');
+    const darkFileInput = document.getElementById('dark-file');
+    const darkPreview = document.getElementById('dark-preview');
+
+    // Status/Result elements
     const statusArea = document.getElementById('status-area');
     const statusText = document.getElementById('status-text');
-    const downloadLink = document.getElementById('download-link');
+
+    // Gallery
     const galleryGrid = document.getElementById('gallery-grid');
+    let pollingInterval;
 
-    let pollingInterval; // To store our setInterval ID
+    // --- Logic ---
 
-    // --- FORM SUBMISSION ---
+    // Reusable function to set up our uploader cards
+    function setupUploader(uploaderElement, fileInputElement, previewElement) {
+        uploaderElement.addEventListener('click', () => fileInputElement.click());
+
+        fileInputElement.addEventListener('change', () => {
+            const file = fileInputElement.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    previewElement.src = e.target.result;
+                    uploaderElement.classList.add('has-preview');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+
+    setupUploader(lightUploader, lightFileInput, lightPreview);
+    setupUploader(darkUploader, darkFileInput, darkPreview);
+
+    // Main form submission handler
     form.addEventListener('submit', async (e) => {
-        e.preventDefault(); // Stop the browser from actually submitting the form
+        e.preventDefault();
 
         if (!lightFileInput.files[0] || !darkFileInput.files[0]) {
             alert('Please select both a light and a dark image.');
             return;
         }
 
-        // Create a FormData object to send the files
         const formData = new FormData();
         formData.append('light', lightFileInput.files[0]);
         formData.append('dark', darkFileInput.files[0]);
 
-        // Update the UI to show we're working
+        // Update UI to show processing state
         submitButton.disabled = true;
-        submitButton.textContent = 'Uploading...';
+        submitButton.textContent = 'Generating...';
         statusArea.classList.remove('hidden');
         statusText.textContent = 'Uploading images...';
-        downloadLink.classList.add('hidden');
 
         try {
-            // Send the files to our Go backend
-            const response = await fetch('/api/create', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.statusText}`);
-            }
+            const response = await fetch('/api/create', { method: 'POST', body: formData });
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
 
             const result = await response.json();
-            const { id } = result;
-
-            // Start polling for the status of our job
-            statusText.textContent = 'Processing... This may take a moment.';
-            pollStatus(id);
+            statusText.textContent = 'Processing... this may take a moment.';
+            pollStatus(result.id);
 
         } catch (error) {
-            console.error('Error creating wallpaper:', error);
             statusText.textContent = `Error: ${error.message}. Please try again.`;
-            submitButton.disabled = false;
-            submitButton.textContent = 'Create Wallpaper';
+            resetSubmitButton();
         }
     });
 
-    // --- POLLING FOR STATUS ---
+    // Function to poll for job status
     function pollStatus(jobId) {
-        // Clear any previous polling
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-        }
+        if (pollingInterval) clearInterval(pollingInterval);
 
         pollingInterval = setInterval(async () => {
             try {
                 const response = await fetch(`/api/status/${jobId}`);
-                if (!response.ok) {
-                    throw new Error('Status check failed');
-                }
+                if (!response.ok) throw new Error('Status check failed');
 
                 const data = await response.json();
 
                 if (data.status === 'completed') {
-                    clearInterval(pollingInterval); // Stop polling
+                    clearInterval(pollingInterval);
                     statusText.textContent = 'Your wallpaper is ready!';
-                    downloadLink.href = data.final_url;
-                    downloadLink.classList.remove('hidden');
-                    submitButton.disabled = false;
-                    submitButton.textContent = 'Create Another Wallpaper';
-                    loadGallery(); // Refresh the gallery with the new image
+                    setDownloadButton(data.final_url);
                 } else if (data.status === 'failed') {
-                    clearInterval(pollingInterval); // Stop polling
+                    clearInterval(pollingInterval);
                     statusText.textContent = 'Sorry, something went wrong during processing.';
-                    submitButton.disabled = false;
-                    submitButton.textContent = 'Create Wallpaper';
+                    resetSubmitButton();
                 }
-                // If status is 'pending' or 'processing', we just wait for the next interval
             } catch (error) {
-                console.error('Polling error:', error);
                 clearInterval(pollingInterval);
                 statusText.textContent = 'Error checking status. Please check the gallery later.';
             }
         }, 3000); // Poll every 3 seconds
     }
 
-    // --- GALLERY LOADING ---
-    async function loadGallery() {
-        try {
-            const response = await fetch('/api/gallery');
-            if (!response.ok) {
-                throw new Error('Failed to load gallery');
-            }
 
-            const wallpapers = await response.json();
-            galleryGrid.innerHTML = ''; // Clear existing gallery
+    function setDownloadButton(url) {
+        submitButton.remove(); // Remove the old button
 
-            if (wallpapers && wallpapers.length > 0) {
-                wallpapers.forEach(wallpaper => {
-                    const img = document.createElement('img');
-                    img.src = wallpaper.final_url;
-                    img.alt = 'Dynamic Wallpaper';
-                    img.loading = 'lazy'; // Lazy load images for performance
-                    galleryGrid.appendChild(img);
-                });
-            } else {
-                galleryGrid.innerHTML = '<p>No wallpapers have been created yet. Be the first!</p>';
-            }
-        } catch (error) {
-            console.error('Gallery loading error:', error);
-            galleryGrid.innerHTML = '<p>Could not load the gallery.</p>';
-        }
+        const downloadButton = document.createElement('a');
+        downloadButton.href = url;
+        downloadButton.textContent = 'Download';
+        downloadButton.className = 'primary-action success';
+        downloadButton.setAttribute('download', ''); // Make the browser download the file
+
+        form.appendChild(downloadButton);
     }
 
-    // Initial load of the gallery when the page opens
-    loadGallery();
+    function resetSubmitButton() {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Generate';
+    }
+
+
 });

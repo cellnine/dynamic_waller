@@ -24,7 +24,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	// smithyendpoints "github.com/aws/smithy-go/endpoints"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -34,33 +37,47 @@ var (
 	ctx      = context.Background()
 )
 
+var (
+	// A Counter to count the total number of jobs processed.
+	jobsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "heicmaker_jobs_total",
+		Help: "The total number of processed jobs",
+	})
+
+	// A Gauge to track the number of jobs currently in progress.
+	jobsInProgress = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "heicmaker_jobs_in_progress",
+		Help: "The number of jobs currently being processed.",
+	})
+
+	// A Histogram to track the duration of job processing.
+	jobDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "heicmaker_job_duration_seconds",
+		Help:    "The duration of the wallpaper generation jobs.",
+		Buckets: prometheus.LinearBuckets(0.5, 0.5, 10), // Buckets from 0.5s to 5s
+	})
+)
+
 type Wallpaper struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
-	Status    string    `json:"status"`
-	LightImg  string    `json:"-"`
-	DarkImg   string    `json:"-"`
-	FinalURL  string    `json:"final_url"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string    `gorm:"primaryKey" json:"id"`
+	Status     string    `json:"status"`
+	LightImg   string    `json:"-"`
+	DarkImg    string    `json:"-"`
+	FinalURL   string    `json:"final_url"`
+	PreviewURL string    `json:"preview_url"`
+	CreatedAt  time.Time `json:"created_at"`
 }
+
+// in main.go
 
 func main() {
 	dsn := "host=db user=user password=password dbname=wallpapers_db port=5432 sslmode=disable"
-
-	log.Println("----------- LOADING ENVIRONMENT -----------")
-	log.Printf("R2_ACCOUNT_ID: [%s]", os.Getenv("R2_ACCOUNT_ID"))
-	log.Printf("R2_ACCESS_KEY_ID: [%s]", os.Getenv("R2_ACCESS_KEY_ID"))
-	log.Printf("R2_SECRET_ACCESS_KEY is set: %v", os.Getenv("R2_SECRET_ACCESS_KEY") != "")
-	log.Printf("R2_BUCKET_NAME: [%s]", os.Getenv("R2_BUCKET_NAME"))
-	log.Printf("R2_PUBLIC_URL: [%s]", os.Getenv("R2_PUBLIC_URL"))
-	log.Println("-----------------------------------------")
 
 	var err error
 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-
-	db.AutoMigrate(&Wallpaper{})
 
 	rdb = redis.NewClient(&redis.Options{
 		Addr: "redis:6379",
@@ -80,14 +97,14 @@ func main() {
 		config.WithEndpointResolverWithOptions(r2Resolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")),
 		config.WithRegion("auto"),
-		// config.WithClientLogMode(aws.LogSigning),
 	)
 	if err != nil {
-		log.Fatalf("Unable to load SDK config, %v", err)
+		log.Fatalf("Unable to load SDK config: %v", err)
 	}
 
 	s3Client = s3.NewFromConfig(cfg)
 
+	// Only the backend should be allowed to do automigrations.
 	if len(os.Args) > 1 && os.Args[1] == "worker" {
 		runWorker()
 	} else {
@@ -98,15 +115,25 @@ func main() {
 
 func runAPI() {
 	router := gin.Default()
-	router.StaticFile("/", "./static/index.html")
-	router.Static("/static", "./static")
+	router.SetTrustedProxies([]string{"127.0.0.1", "::1", "192.168.0.0/16", "172.17.0.0/16"})
 
-	api := router.Group("api")
+	api := router.Group("/api")
 	{
 		api.POST("/create", createWallpaper)
 		api.GET("/status/:id", getStatus)
 		api.GET("/gallery", getGallery)
 	}
+
+	router.GET("/gallery", func(c *gin.Context) {
+		c.File("./static/gallery.html")
+	})
+
+	router.Static("/static", "./static")
+	router.NoRoute(func(c *gin.Context) {
+		c.File("./static/index.html")
+	})
+
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	log.Println("Starting API server on port 8080")
 	if err := router.Run(":8080"); err != nil {
@@ -197,40 +224,48 @@ func runWorker() {
 			continue
 		}
 
+		// --- Metrics Tracking ---
+		jobsInProgress.Inc()
+		startTime := time.Now()
+
+		defer func() {
+			duration := time.Since(startTime)
+			jobDuration.Observe(duration.Seconds()) // Record duration
+			jobsInProgress.Dec()                    // Decrement in-progress
+			jobsTotal.Inc()                         // Increment total jobs processed
+		}()
+
 		jobID := result[1]
 		log.Printf("Processing job %s", jobID)
 
 		var wallpaper Wallpaper
 		if err := db.First(&wallpaper, "id = ?", jobID).Error; err != nil {
 			log.Printf("Error finding job %s in DB: %v", jobID, err)
+			db.Model(&wallpaper).Update("Status", "failed")
 			continue
 		}
 
 		db.Model(&wallpaper).Update("Status", "processing")
-
 		tmpDir := filepath.Dir(wallpaper.LightImg)
+
+		// --- Image Processing ---
 		finalPath := filepath.Join(tmpDir, "dynamic.heic")
-
 		xmpContent := `<?xpacket?><x:xmpmeta xmlns:x="adobe:ns:meta"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns"><rdf:Description xmlns:apple_desktop="http://ns.apple.com/namespace/1.0" apple_desktop:apr="YnBsaXN0MDDSAQMCBFFsEAFRZBAACA0TEQ/REMOVE/8BAQAAAAAAAAAFAAAAAAAAAAAAAAAAAAAAFQ=="/></rdf:RDF></x:xmpmeta>`
-
 		baseName := filepath.Base(wallpaper.LightImg)
 		ext := filepath.Ext(baseName)
 		xmpFileName := baseName[0:len(baseName)-len(ext)] + ".xmp"
 		xmpPath := filepath.Join(tmpDir, xmpFileName)
-
 		if err := os.WriteFile(xmpPath, []byte(xmpContent), 0644); err != nil {
 			log.Printf("Failed to create xmp file for job %s: %v", jobID, err)
 			db.Model(&wallpaper).Update("Status", "failed")
 			continue
 		}
-
 		cmdExiv := exec.Command("exiv2", "-iX", "in", wallpaper.LightImg)
 		if output, err := cmdExiv.CombinedOutput(); err != nil {
 			log.Printf("exiv2 failed for job %s: %v\nOutput: %s", jobID, err, string(output))
 			db.Model(&wallpaper).Update("Status", "failed")
 			continue
 		}
-
 		args := []string{}
 		if filepath.Ext(wallpaper.LightImg) == ".png" {
 			args = append(args, "-L")
@@ -242,49 +277,70 @@ func runWorker() {
 			db.Model(&wallpaper).Update("Status", "failed")
 			continue
 		}
+		log.Printf("Generating preview for job %s", jobID)
+		previewPath := filepath.Join(tmpDir, "preview.jpg")
+		cmdConvert := exec.Command("convert", wallpaper.LightImg, "-quality", "85", "-resize", "600x", previewPath)
+		if output, err := cmdConvert.CombinedOutput(); err != nil {
+			log.Printf("imagemagick failed for job %s: %v\nOutput: %s", jobID, err, string(output))
+			db.Model(&wallpaper).Update("Status", "failed")
+			continue
+		}
 
-		//  TODO: Upload `finalPath` to Cloudflare R2
+		// --- Upload Files to R2 ---
+		bucketName := os.Getenv("R2_BUCKET_NAME")
+		publicURL := os.Getenv("R2_PUBLIC_URL")
 		log.Printf("Uploading %s to R2...", finalPath)
-
-		file, err := os.Open(finalPath)
+		heicFile, err := os.Open(finalPath)
 		if err != nil {
 			log.Printf("Failed to open final file for job %s: %v", jobID, err)
 			db.Model(&wallpaper).Update("Status", "failed")
 			continue
 		}
-		defer file.Close() // Make sure to close the file
-
-		bucketName := os.Getenv("R2_BUCKET_NAME")
-		if bucketName == "" {
-			log.Printf("R2_BUCKET_NAME not set for job %s", jobID)
-			db.Model(&wallpaper).Update("Status", "failed")
-			continue
-		}
-		objectKey := "wallpapers/" + jobID + ".heic"
-
+		defer heicFile.Close()
+		heicObjectKey := "wallpapers/" + jobID + ".heic"
 		_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket:      aws.String(bucketName),
-			Key:         aws.String(objectKey),
-			Body:        file,
+			Key:         aws.String(heicObjectKey),
+			Body:        heicFile,
 			ContentType: aws.String("image/heic"),
 		})
-
 		if err != nil {
-			log.Printf("Failed to upload to R2 for job %s: %v", jobID, err)
+			log.Printf("Failed to upload .heic to R2 for job %s: %v", jobID, err)
+			db.Model(&wallpaper).Update("Status", "failed")
+			continue
+		}
+		log.Printf("Uploading %s to R2...", previewPath)
+		previewFile, err := os.Open(previewPath)
+		if err != nil {
+			log.Printf("Failed to open preview file for job %s: %v", jobID, err)
+			db.Model(&wallpaper).Update("Status", "failed")
+			continue
+		}
+		defer previewFile.Close()
+		previewObjectKey := "previews/" + jobID + ".jpg"
+		_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:      aws.String(bucketName),
+			Key:         aws.String(previewObjectKey),
+			Body:        previewFile,
+			ContentType: aws.String("image/jpeg"),
+		})
+		if err != nil {
+			log.Printf("Failed to upload preview to R2 for job %s: %v", jobID, err)
 			db.Model(&wallpaper).Update("Status", "failed")
 			continue
 		}
 
-		publicURL := os.Getenv("R2_PUBLIC_URL")
-		if publicURL == "" {
-			log.Printf("R2_PUBLIC_URL not set for job %s", jobID)
-			db.Model(&wallpaper).Update("Status", "failed")
-			continue
-		}
-		finalURL := publicURL + "/" + objectKey
-		log.Printf("Successfully uploaded. URL: %s", finalURL)
+		// --- Cleanup ---
+		// Cron maybe?
+		finalURL := publicURL + "/" + heicObjectKey
+		previewURL := publicURL + "/" + previewObjectKey
+		log.Printf("Successfully uploaded. URL: %s, Preview: %s", finalURL, previewURL)
 
-		updates := map[string]interface{}{"Status": "completed", "FinalURL": finalURL}
+		updates := map[string]interface{}{
+			"Status":     "completed",
+			"FinalURL":   finalURL,
+			"PreviewURL": previewURL,
+		}
 		if err := db.Model(&wallpaper).Updates(updates).Error; err != nil {
 			log.Printf("Failed to update job %s to completed status: %v", jobID, err)
 			continue
