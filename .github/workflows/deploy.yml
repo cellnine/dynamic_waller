@@ -28,12 +28,10 @@ jobs:
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} /bin/bash -c "\
             whoami && \
-            cd $HOME/dynamic_waller && \
+            cd dynamic_waller && \
             git pull && \
             echo R2_ACCOUNT_ID=$R2_ACCOUNT_ID > .env && \
             echo R2_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID >> .env && \
