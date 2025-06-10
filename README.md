@@ -14,7 +14,7 @@ Upload a light mode image and a dark mode image, and the service will process th
 
 This project was also an exercise in building a complete, production-ready application stack from the ground up, incorporating modern DevOps principles and tools.
 
-Most of the know-how for making `.heic` files came form this ![article](https://remove.codes/01-dynamic-wallpaper).
+Most of the know-how for making `.heic` files came form this [article](https://remove.codes/01-dynamic-wallpaper).
 
 
 
@@ -141,4 +141,3 @@ This repository is configured for automated deployments to a production server.
 
 ---
 
-```
