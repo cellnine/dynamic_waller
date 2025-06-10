@@ -29,7 +29,7 @@ services:
         condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`app.localhost`)"
+      - "traefik.http.routers.backend.rule=Host(`dynamicwaller.site`)"
       - "traefik.http.routers.backend.entrypoints=web"
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
     command: ["./waller", "api"]
