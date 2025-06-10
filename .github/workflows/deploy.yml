@@ -31,7 +31,7 @@ jobs:
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
-          ssh -o StrictHostKeyChecking=no $SSH_USERNAME@$SSH_HOST /bin/bash -c "\
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} /bin/bash -c "\
             cd ~/dynamic_waller && \
             git pull && \
             echo R2_ACCOUNT_ID=$R2_ACCOUNT_ID > .env && \
