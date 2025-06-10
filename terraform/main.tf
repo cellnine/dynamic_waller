@@ -54,11 +54,21 @@ resource "google_compute_instance" "vm_instance" {
   metadata_startup_script = <<-EOF
     #!/bin/bash
     apt-get update
-    apt-get install -y git docker.io docker-compose
+    apt-get install -y git docker.io docker-compose gcloud
 
     usermod -aG docker ${var.ssh_user}
 
-    sudo -u ${var.ssh_user} git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git /home/${var.ssh_user}/heic-wallpaper-maker
+    sudo -u ${var.ssh_user} mkdir -p /home/${var.ssh_user}/.ssh
+
+    gcloud secrets versions access latest --secret="github-deploy-key" > /home/${var.ssh_user}/.ssh/id_ed25519
+    
+    chown ${var.ssh_user}:${var.ssh_user} /home/${var.ssh_user}/.ssh/id_ed25519
+    chmod 600 /home/${var.ssh_user}/.ssh/id_ed25519
+
+    ssh-keyscan github.com >> /home/${var.ssh_user}/.ssh/known_hosts
+    chown ${var.ssh_user}:${var.ssh_user} /home/${var.ssh_user}/.ssh/known_hosts
+
+    sudo -u ${var.ssh_user} git clone "${var.github_repo_ssh_url}" /home/${var.ssh_user}/dynamic_waller
   EOF
 
   metadata = {
@@ -66,6 +76,19 @@ resource "google_compute_instance" "vm_instance" {
   }
 
   service_account {
+    email  = google_service_account.vm_service_account.email
     scopes = ["cloud-platform"]
   }
+
+}
+
+resource "google_service_account" "vm_service_account" {
+  account_id   = "heic-maker-vm-sa"
+  display_name = "Service Account for HEIC Maker VM"
+}
+
+resource "google_secret_manager_secret_iam_member" "secret_access" {
+  secret_id = "github-deploy-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.vm_service_account.email}"
 }

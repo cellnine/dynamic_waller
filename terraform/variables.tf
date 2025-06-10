@@ -32,3 +32,8 @@ variable "ssh_pub_key_path" {
   type        = string
   default     = "~/Documents/endeavour/dynamicwall.pub"
 }
+
+variable "github_repo_ssh_url" {
+  description = "The SSH URL of the GitHub repository to clone."
+  type        = string
+}
