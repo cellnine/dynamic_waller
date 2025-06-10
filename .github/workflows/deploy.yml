@@ -19,30 +19,28 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Deploy to Server
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
-          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'EOF'
-            
-            cd ~/dynamic_waller
+  env:
+    R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+    R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+    R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+    R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+    POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+    POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+    POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+    SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+    SSH_HOST: ${{ secrets.SSH_HOST }}
+  run: |
+    ssh -o StrictHostKeyChecking=no $SSH_USERNAME@$SSH_HOST /bin/bash -c "\
+      cd ~/dynamic_waller && \
+      git pull && \
+      echo R2_ACCOUNT_ID=$R2_ACCOUNT_ID > .env && \
+      echo R2_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID >> .env && \
+      echo R2_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY >> .env && \
+      echo R2_BUCKET_NAME=$R2_BUCKET_NAME >> .env && \
+      echo R2_PUBLIC_URL=$R2_PUBLIC_URL >> .env && \
+      echo POSTGRES_USER=$POSTGRES_USER >> .env && \
+      echo POSTGRES_PASSWORD=$POSTGRES_PASSWORD >> .env && \
+      echo POSTGRES_DB=$POSTGRES_DB >> .env && \
+      docker compose up --build -d"
 
-            git pull
-
-            echo "R2_ACCOUNT_ID=${R2_ACCOUNT_ID}" > .env
-            echo "R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}" >> .env
-            echo "R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
-            echo "R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
-            echo "R2_PUBLIC_URL=${R2_PUBLIC_URL}" >> .env
-            echo "POSTGRES_USER=${POSTGRES_USER}" >> .env
-            echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> .env
-            echo "POSTGRES_DB=${POSTGRES_DB}" >> .env
-            
-            docker compose up --build -d
-          EOF
