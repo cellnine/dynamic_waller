@@ -61,12 +61,10 @@ resource "google_compute_instance" "vm_instance" {
     sudo -u ${var.ssh_user} git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git /home/${var.ssh_user}/heic-wallpaper-maker
   EOF
 
-  # 7. This injects your public SSH key for passwordless access
   metadata = {
     ssh-keys = "${var.ssh_user}:${file(var.ssh_pub_key_path)}"
   }
 
-  # Allow the service account to have access to the instance
   service_account {
     scopes = ["cloud-platform"]
   }
